@@ -1,0 +1,12 @@
+[project]
+name = "kpi1-sagemaker-mlops"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "boto3>=1.43.81",
+    "sagemaker>=2.239,<3",
+    "pandas>=2.0",
+    "scikit-learn>=1.4",
+]
