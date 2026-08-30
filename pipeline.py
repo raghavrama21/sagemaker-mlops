@@ -1,11 +1,28 @@
+# %%
+import boto3
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.steps import ProcessingStep
+from sagemaker.estimator import Estimator
 
+from sagemaker.image_uris import retrieve
+
+from sagemaker.tuner import HyperparameterTuner, ContinuousParameter, IntegerParameter
+
+from sagemaker.workflow.pipeline_context import PipelineSession
+from sagemaker.workflow.steps import TuningStep
+from sagemaker.inputs import TrainingInput
+from sagemaker.experiments.run import Run
+
+EXPERIMENT_NAME = "kpi1-home-credit-tuning"
 ROLE = "arn:aws:iam::846754631130:role/kpi1-sagemaker-execution-role"
 BUCKET = "kpi1-mlops-846754631130"
 PIPELINE_NAME = "kpi1-home-credit-pipeline"
+REGION = boto3.Session().region_name
+pipeline_session = PipelineSession()
+
+XGB_IMAGE = retrieve("xgboost", REGION, version="1.7-1")
 
 sklearn_processor = SKLearnProcessor(
     framework_version="1.2-1",
@@ -43,15 +60,67 @@ preprocess_step = ProcessingStep(
     code="preprocess.py",
 )
 
-pipeline = Pipeline(
-    name=PIPELINE_NAME,
-    steps=[preprocess_step],
+xgb_estimator = Estimator(
+    image_uri=XGB_IMAGE,
+    role=ROLE,
+    instance_type="ml.m5.xlarge",
+    instance_count=1,
+    output_path=f"s3://{BUCKET}/models/xgb/",
+    sagemaker_session=pipeline_session,
 )
 
-# NEXT: XGBoost tuning branch (HyperparameterTuner + TuningStep + Experiments Run),
-# then the matching Linear Learner branch, then ConditionStep + RegisterModel for each.
-# See README.md.
+xgb_estimator.set_hyperparameters(
+    objective="binary:logistic",
+    num_round=100,
+    eval_metric="auc",
+)
 
+xgb_tuner = HyperparameterTuner(
+    estimator=xgb_estimator,
+    objective_metric_name="validation:auc",
+    objective_type="Maximize",
+    hyperparameter_ranges={
+        "max_depth": IntegerParameter(3, 10),
+        "eta": ContinuousParameter(0.1, 0.4),
+        "min_child_weight": ContinuousParameter(1, 10),
+        "subsample": ContinuousParameter(0.5, 1),
+    },
+    max_jobs=4,
+    max_parallel_jobs=2,
+)
+
+with Run(
+    experiment_name=EXPERIMENT_NAME,
+    run_name="first-run",
+    sagemaker_session=pipeline_session,
+) as run:
+    step_args = xgb_tuner.fit(
+        inputs={
+            "train": TrainingInput(
+                s3_data=preprocess_step.properties.ProcessingOutputConfig.Outputs[
+                    "train"
+                ].S3Output.S3Uri,
+                content_type="text/csv",
+            ),
+            "validation": TrainingInput(
+                s3_data=preprocess_step.properties.ProcessingOutputConfig.Outputs[
+                    "validation"
+                ].S3Output.S3Uri,
+                content_type="text/csv",
+            ),
+        }
+    )
+
+xgb_tuning_step = TuningStep(
+    name="TuneXGBoost",
+    step_args=step_args,
+)
+
+
+pipeline = Pipeline(
+    name=PIPELINE_NAME,
+    steps=[preprocess_step, xgb_tuning_step],
+)
 if __name__ == "__main__":
     pipeline.upsert(role_arn=ROLE)
     execution = pipeline.start()
