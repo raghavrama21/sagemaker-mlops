@@ -8,7 +8,12 @@ from sagemaker.estimator import Estimator
 
 from sagemaker.image_uris import retrieve
 
-from sagemaker.tuner import HyperparameterTuner, ContinuousParameter, IntegerParameter
+from sagemaker.tuner import (
+    HyperparameterTuner,
+    ContinuousParameter,
+    IntegerParameter,
+    CategoricalParameter,
+)
 
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.steps import TuningStep
@@ -136,9 +141,9 @@ ll_tuner = HyperparameterTuner(
     objective_metric_name="validation:roc_auc_score",
     objective_type="Maximize",
     hyperparameter_ranges={
-        "wd": ContinuousParameter(0, 1),
-        "l1": ContinuousParameter(0, 1),
-        "learning_rate": ContinuousParameter(0, 1),
+        "wd": ContinuousParameter(1e-7, 1),
+        "l1": ContinuousParameter(1e-7, 1),
+        "learning_rate": ContinuousParameter(1e-5, 1),
         "mini_batch_size": IntegerParameter(100, 5000),
         "use_bias": CategoricalParameter([True, False]),
     },
