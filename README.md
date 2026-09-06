@@ -82,12 +82,30 @@ Learner containers require.
       Processing job (`preprocess.py`)
 - [x] Pipeline definition (`pipeline.py`) with the preprocessing step
       running end-to-end against AWS
-- [ ] XGBoost and Linear Learner tuning branches
+- [x] XGBoost and Linear Learner tuning branches
 - [ ] Conditional model registration to separate Model Package Groups
 - [ ] Multi-variant endpoint deployment with traffic splitting
 - [ ] Auto-scaling policies per variant
 - [ ] Model Monitor drift detection with CloudWatch/SNS alerting
 - [ ] Locust load test against latency target
+
+## Results so far
+
+Both tuning branches ran end-to-end against AWS in one pipeline execution —
+`TuneXGBoost` and `TuneLinearLearner` both depend only on the preprocessing
+step, not on each other, so SageMaker ran them concurrently. 4/4 trials
+completed on each branch:
+
+| Model | Best validation AUC | Trial range |
+|---|---|---|
+| XGBoost | **0.7497** | 0.7158 – 0.7497 |
+| Linear Learner | 0.7455 | 0.6701 – 0.7455 |
+
+XGBoost edges out Linear Learner slightly, with a tighter spread across
+trials — a reasonable outcome given the tree-based model's ability to
+capture nonlinear splits in mixed-type tabular data with real missing
+values. The two scores land close enough to make the eventual traffic-split
+comparison between them meaningful rather than a foregone conclusion.
 
 ## Running the pipeline
 

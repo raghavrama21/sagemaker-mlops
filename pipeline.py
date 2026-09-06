@@ -20,6 +20,11 @@ from sagemaker.workflow.steps import TuningStep
 from sagemaker.inputs import TrainingInput
 from sagemaker.experiments.run import Run
 
+from sagemaker.model import Model
+from sagemaker.workflow.model_step import ModelStep
+from sagemaker.workflow.condition_step import ConditionStep
+from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
+
 EXPERIMENT_NAME = "kpi1-home-credit-tuning"
 ROLE = "arn:aws:iam::846754631130:role/kpi1-sagemaker-execution-role"
 BUCKET = "kpi1-mlops-846754631130"
@@ -29,7 +34,6 @@ pipeline_session = PipelineSession()
 
 XGB_IMAGE = retrieve("xgboost", REGION, version="1.7-1")
 LL_IMAGE = retrieve("linear-learner", REGION, version="1.7-1")
-
 
 sklearn_processor = SKLearnProcessor(
     framework_version="1.2-1",
@@ -123,6 +127,43 @@ xgb_tuning_step = TuningStep(
     step_args=step_args,
 )
 
+xgb_best_model = Model(
+    image_uri=XGB_IMAGE,
+    model_data=xgb_tuning_step.get_top_model_s3_uri(
+        top_k=0,
+        s3_bucket=BUCKET,
+        prefix=f"models/xgb",
+    ),
+    role=ROLE,
+    sagemaker_session=pipeline_session,
+)
+
+xgb_register_args = xgb_best_model.register(
+    content_types=["text/csv"],
+    response_types=["text/csv"],
+    inference_instances=["ml.m5.large"],
+    transform_instances=["ml.m5.large"],
+    model_package_group_name="kpi1-xgb-variant",
+    approval_status="PendingManualApproval",
+)
+
+xgb_register_step = ModelStep(name="RegisterXGBoost", step_args=xgb_register_args)
+
+xgb_condition_step = ConditionStep(
+    name="CheckXGBoostAUC",
+    conditions=[
+        ConditionGreaterThanOrEqualTo(
+            left=xgb_tuning_step.properties.TrainingJobSummaries[
+                0
+            ].FinalHyperParameterTuningJobObjectiveMetric.Value,
+            right=0.93,
+        )
+    ],
+    if_steps=[xgb_register_step],
+    else_steps=[],
+)
+
+
 ll_estimator = Estimator(
     image_uri=LL_IMAGE,
     role=ROLE,
@@ -175,9 +216,45 @@ with Run(
 
 ll_tuning_step = TuningStep(name="TuneLinearLearner", step_args=ll_step_args)
 
+ll_best_model = Model(
+    image_uri=LL_IMAGE,
+    model_data=ll_tuning_step.get_top_model_s3_uri(
+        top_k=0,
+        s3_bucket=BUCKET,
+        prefix="models/ll",
+    ),
+    role=ROLE,
+    sagemaker_session=pipeline_session,
+)
+
+ll_register_args = ll_best_model.register(
+    content_types=["text/csv"],
+    response_types=["text/csv"],
+    inference_instances=["ml.m5.large"],
+    transform_instances=["ml.m5.large"],
+    model_package_group_name="kpi1-linear-variant",
+    approval_status="PendingManualApproval",
+)
+
+ll_register_step = ModelStep(name="RegisterLinearLearner", step_args=ll_register_args)
+
+ll_condition_step = ConditionStep(
+    name="CheckLinearLearnerAUC",
+    conditions=[
+        ConditionGreaterThanOrEqualTo(
+            left=ll_tuning_step.properties.TrainingJobSummaries[
+                0
+            ].FinalHyperParameterTuningJobObjectiveMetric.Value,
+            right=0.93,
+        )
+    ],
+    if_steps=[ll_register_step],
+    else_steps=[],
+)
+
 pipeline = Pipeline(
     name=PIPELINE_NAME,
-    steps=[preprocess_step, xgb_tuning_step, ll_tuning_step],
+    steps=[xgb_condition_step, ll_condition_step],
 )
 if __name__ == "__main__":
     pipeline.upsert(role_arn=ROLE)
