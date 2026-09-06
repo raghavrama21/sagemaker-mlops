@@ -83,8 +83,8 @@ Learner containers require.
 - [x] Pipeline definition (`pipeline.py`) with the preprocessing step
       running end-to-end against AWS
 - [x] XGBoost and Linear Learner tuning branches
-- [ ] Conditional model registration to separate Model Package Groups
-- [ ] Multi-variant endpoint deployment with traffic splitting
+- [x] Conditional model registration to separate Model Package Groups
+- [x] Multi-variant endpoint deployment with traffic splitting
 - [ ] Auto-scaling policies per variant
 - [ ] Model Monitor drift detection with CloudWatch/SNS alerting
 - [ ] Locust load test against latency target
